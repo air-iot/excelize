@@ -122,6 +122,7 @@ func (f *File) NewStreamWriter(sheet string) (*StreamWriter, error) {
 		file:    f,
 		Sheet:   sheet,
 		SheetID: sheetID,
+		rawData: newBufferedWriter(int(f.options.UnzipXMLSizeLimit)),
 	}
 	var err error
 	sw.worksheet, err = f.workSheetReader(sheet)
@@ -699,8 +700,16 @@ func bulkAppendFields(w io.Writer, ws *xlsxWorksheet, from, to int) {
 // is written to the temp file with Sync, which may return an error.
 // Therefore, Sync should be periodically called and the error checked.
 type bufferedWriter struct {
-	tmp *os.File
-	buf bytes.Buffer
+	streamChunkSize int
+	tmp             *os.File
+	buf             bytes.Buffer
+}
+
+func newBufferedWriter(streamChunkSize int) bufferedWriter {
+	if streamChunkSize <= 0 {
+		streamChunkSize = StreamChunkSize
+	}
+	return bufferedWriter{streamChunkSize: streamChunkSize}
 }
 
 // Write to the in-memory buffer. The error is always nil.
@@ -733,7 +742,7 @@ func (bw *bufferedWriter) Reader() (io.Reader, error) {
 // buffer has grown large enough. Any error will be returned.
 func (bw *bufferedWriter) Sync() (err error) {
 	// Try to use local storage
-	if bw.buf.Len() < StreamChunkSize {
+	if bw.buf.Len() < bw.streamChunkSize {
 		return nil
 	}
 	if bw.tmp == nil {
